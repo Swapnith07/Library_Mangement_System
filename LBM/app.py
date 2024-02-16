@@ -1,8 +1,8 @@
 import streamlit as st
-from database import create_users_table, get_issued_books, register_user, authenticate_user
+from database import accept_a_request, add_request, create_users_table, find_book, get_issued_books, get_requests, register_user, authenticate_user
 from database import create_books_table, add_book, get_all_books, delete_book, check_book_existence, get_all_guest_users, get_user_details
 from database import create_issued_books_table, issue_book, get_issued_books, return_book
-from database import search_books_by_author, search_books_by_genre, search_books_by_isbn, search_books_by_name, search_books_by_publication_year, get_borrowing_history
+from database import search_books_by_author, search_books_by_genre, search_books_by_isbn, search_books_by_name, get_borrowing_history
 from datetime import datetime, timedelta
 
 
@@ -29,10 +29,13 @@ def guest_login_page():
             st.warning("Username and password cannot be empty.")
         else:
             user_guest = authenticate_user(username_guest, password_guest)
+
             if user_guest:
                 st.success(
-                    f"Successfully logged in as {user_guest[3]}")
+                    f"Successfully logged in as " + user_guest[1])
                 st.session_state.user_id = 2
+                st.session_state.loggedin_id = user_guest[0]
+
                 main_page(st.session_state.user_id)
             else:
                 st.error("Invalid username or password. Please try again.")
@@ -59,14 +62,41 @@ def registration_page():
     st.title("Guest Registration")
     new_username = st.text_input("Username:")
     new_password = st.text_input("Password:", type="password")
+    confirm_password = st.text_input("Confirm Password:", type="password")
+
     if st.button("Register"):
-        if new_username == "" or new_password == "":
-            st.warning("Username and password cannot be empty.")
+        password_validation_result = is_valid_password(new_password)
+        if get_user_details(new_username):
+            st.warning(
+                "Username already exists. Please choose another username.")
+        elif new_password == new_username:
+            st.warning(
+                "Password cannot be the same as the username. Please choose a different password.")
+        elif new_password != confirm_password:
+            st.warning(
+                "Passwords do not match. Please enter the same password in both fields.")
+        elif password_validation_result is not True:
+            st.warning(password_validation_result)
         else:
-            # Register the new user as a guest
             register_user(new_username, new_password, "guest")
             st.success(
                 "Registration successful. You can now log in as a guest.")
+
+
+def is_valid_password(password):
+    if len(password) < 8:
+        return "Password must be at least 8 characters long."
+
+    if not any(char.isalpha() for char in password):
+        return "Password must include at least one alphabet character."
+
+    if not any(char.isdigit() for char in password):
+        return "Password must include at least one numeric character."
+
+    if not any(char in '@_' for char in password):
+        return "Password can have only special characters (@, _) not anything more."
+
+    return True
 
 
 def main_page(user_id):
@@ -75,7 +105,7 @@ def main_page(user_id):
 
     if user_id == 1:  # Admin
         st.sidebar.subheader("Admin Actions")
-        admin_actions = ["Manage Books", "Manage Students",
+        admin_actions = ["Manage Books", "Manage Students", "requests",
                          "Issue Book", "Return Book", "View Issued Books", "Logout"]
         admin_choice = st.sidebar.selectbox("Select Action", admin_actions)
 
@@ -94,6 +124,8 @@ def main_page(user_id):
                 delete_book_page()
         elif admin_choice == "Manage Students":
             manage_students_page()
+        elif admin_choice == "requests":
+            view_requests()
         elif admin_choice == "Issue Book":
             issue_book_page()
         elif admin_choice == "Return Book":
@@ -106,13 +138,11 @@ def main_page(user_id):
 
     else:
         st.sidebar.subheader("Guest Actions")
-        guest_actions = ["Profile", "View Books", "Search Books",
+        guest_actions = ["Search Books", "View Books",
                          "Borrowing History", "Featured Books", "Logout"]
         guest_choice = st.sidebar.selectbox("Select Action", guest_actions)
 
-        if guest_choice == "Profile":
-            profile_page()
-        elif guest_choice == "View Books":
+        if guest_choice == "View Books":
             guest_view_books_page()
         elif guest_choice == "Search Books":
             search_books_page()
@@ -271,8 +301,36 @@ def view_issued_books_page():
         })
 
 
-def profile_page():
-    pass
+def view_requests():
+    st.title("View Requests")
+    requests = get_requests()
+    if not requests:
+        st.info("No requests available.")
+    else:
+        st.write("### Requests Information")
+        for i, request in enumerate(requests):
+            if request[4] == "Pending":
+                st.write(f"Request {i+1}:")
+                st.write(f"Request ID: {request[0]}")
+                st.write(f"Book Name: {request[1]}")
+                st.write(f"ISBN Number: {request[2]}")
+                st.write(f"User ID: {request[3]}")
+                button_key = f"accept_button_{request[0]}"
+                st.button("Accept Request", key=button_key,
+                          on_click=accept_request, args=(request[0],))
+            else:
+                st.write(f"Request {i+1}:")
+                st.write(f"Request ID: {request[0]}")
+                st.write(f"Book Name: {request[1]}")
+                st.write(f"ISBN Number: {request[2]}")
+                st.write(f"User ID: {request[3]}")
+                st.write("Request has already been accepted.")
+            st.write("---")
+
+
+def accept_request(request_id):
+    accept_a_request(request_id)
+    st.success("Request accepted successfully.")
 
 
 def guest_view_books_page():
@@ -298,7 +356,7 @@ def search_books_page():
     st.title("Search Books")
 
     search_category = st.selectbox("Select search category:", [
-                                   "Book Name", "Author", "Genre", "ISBN", "Publication Year"])
+                                   "Book Name", "Author", "Genre", "ISBN"])
     search_query = st.text_input(f"Enter {search_category} to search:")
 
     if st.button("Search"):
@@ -309,14 +367,20 @@ def search_books_page():
             st.info("No matching books found.")
         else:
             st.write("### Matching Books Information")
-            st.table({
-                'SNO': [i + 1 for i in range(len(books))],
-                'BOOK NAME': [book[1] for book in books],
-                'Author': [book[2] for book in books],
-                'Genre': [book[3] for book in books],
-                'Publication Year': [book[4] for book in books],
-                'ISBN': [book[5] for book in books]
-            })
+            for i, book in enumerate(books):
+                st.write(f"#### Book {i + 1}")
+                st.write(f"**Book Name:** {book[1]}")
+                st.write(f"**Author:** {book[2]}")
+                st.write(f"**Genre:** {book[3]}")
+                st.write(f"**Publication Year:** {book[4]}")
+                st.write(f"**ISBN:** {book[5]}")
+                st.button(f"Request {book[1]}",
+                          on_click=req_book, args=(book[5],))
+
+
+def req_book(isbn):
+    book = find_book(isbn)
+    add_request(book[5], book[1], "Pending", st.session_state.loggedin_id)
 
 
 def search_books(category, query):
@@ -328,8 +392,6 @@ def search_books(category, query):
         return search_books_by_genre(query)
     elif category == "ISBN":
         return search_books_by_isbn(query)
-    elif category == "Publication Year":
-        return search_books_by_publication_year(query)
     else:
         return []
 
@@ -338,14 +400,12 @@ def borrowing_history_page():
     st.title("Borrowing History")
 
     if st.session_state.user_id:
-        user_id = st.session_state.user_id
+        user_id = st.session_state.loggedin_id
         borrowing_history = get_borrowing_history(user_id)
-
         if not borrowing_history:
             st.info("No borrowing history available.")
         else:
             st.write("### Borrowing History")
-            print(borrowing_history)
             st.table({
                 'Book Name': [book[0] for book in borrowing_history],
                 'ISBN Number': [book[1] for book in borrowing_history],
@@ -368,7 +428,7 @@ def main():
 
     if st.session_state.user_id is None:
         user_selection_page()
-    elif st.session_state.user_id == 1:  # Admin
+    elif st.session_state.user_id == 1:
         create_issued_books_table()
         main_page(st.session_state.user_id)
     else:  # Guest

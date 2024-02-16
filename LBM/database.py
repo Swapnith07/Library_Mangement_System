@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import mysql.connector
 
 
@@ -16,6 +17,7 @@ def close_database_connection(connection, cursor):
 
 
 def create_users_table():
+
     connection = get_database_connection()
     cursor = connection.cursor()
 
@@ -275,31 +277,79 @@ def search_books_by_isbn(query):
     return books
 
 
-def search_books_by_publication_year(query):
-    connection = get_database_connection()
-    cursor = connection.cursor()
-
-    select_query = """
-        SELECT * FROM books WHERE publication_year LIKE %s
-    """
-    cursor.execute(select_query, (f"%{query}%",))
-    books = cursor.fetchall()
-
-    close_database_connection(connection, cursor)
-    return books
-
-
 def get_borrowing_history(user_id):
     connection = get_database_connection()
     cursor = connection.cursor()
 
     select_query = """
-        SELECT book_name, isbn_number, due_date
+        SELECT book_name, isbn_number,due_date
         FROM issued_books
-        WHERE id = %s
+        WHERE user_id = %s
     """
     cursor.execute(select_query, (user_id,))
     borrowing_history = cursor.fetchall()
 
     close_database_connection(connection, cursor)
     return borrowing_history
+
+
+def add_request(isbn_number, book_name, request_status, user_requested):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "INSERT INTO requests (isbn_number, book_name, request_status,user_requested) VALUES (%s, %s, %s,%s)"
+    values = (isbn_number, book_name, request_status, user_requested)
+
+    cursor.execute(query, values)
+    connection.commit()
+    close_database_connection(connection, cursor)
+
+
+def find_book(isbn_number):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT * FROM books WHERE isbn = %s"
+    values = (isbn_number,)
+
+    cursor.execute(query, values)
+    book = cursor.fetchone()
+
+    close_database_connection(connection, cursor)
+    return book
+
+
+def get_requests():
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT * FROM requests"
+    cursor.execute(query)
+    requests = cursor.fetchall()
+
+    close_database_connection(connection, cursor)
+    return requests
+
+
+def accept_a_request(request_id):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "UPDATE requests SET request_status = 'Accepted' WHERE request_id = %s"
+    values = (request_id,)
+    cursor.execute(query, values)
+
+    query1 = "SELECT * FROM requests WHERE request_id = %s"
+    values = (request_id,)
+    cursor.execute(query1, values)
+    request = cursor.fetchone()
+    print(request)
+    user_id = int(request[3])
+    book_name = request[1]
+    isbn_number = int(request[2])
+    due_date = datetime.now().date() + timedelta(days=3)
+
+    issue_book(user_id, book_name, isbn_number, due_date)
+
+    connection.commit()
+    close_database_connection(connection, cursor)
