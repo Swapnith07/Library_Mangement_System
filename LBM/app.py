@@ -373,11 +373,11 @@ def search_books_page():
             st.write("### Matching Books Information")
             for i, book in enumerate(books):
                 st.write(f"#### Book {i + 1}")
-                st.write(f"**Book Name:** {book[1]}")
-                st.write(f"**Author:** {book[2]}")
-                st.write(f"**Genre:** {book[3]}")
-                st.write(f"**Publication Year:** {book[4]}")
-                st.write(f"**ISBN:** {book[5]}")
+                st.write(f"*Book Name:* {book[1]}")
+                st.write(f"*Author:* {book[2]}")
+                st.write(f"*Genre:* {book[3]}")
+                st.write(f"*Publication Year:* {book[4]}")
+                st.write(f"*ISBN:* {book[5]}")
                 st.button(f"Request {book[1]}",
                           on_click=req_book, args=(book[5],))
 
@@ -387,7 +387,7 @@ def req_book(isbn):
 
     if st.session_state.user_id == 2:  # Check if the user is a guest
         requested_books_count = len(
-        get_user_requests(st.session_state.loggedin_id))
+            get_user_requests(st.session_state.loggedin_id))
         request_limit = 3
 
         if requested_books_count >= request_limit:

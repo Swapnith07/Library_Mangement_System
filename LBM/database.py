@@ -417,12 +417,11 @@ def reject_a_request(request_id):
     connection.commit()
     close_database_connection(connection, cursor)
 
-
 def get_user_requests(user_id):
     connection = get_database_connection()
     cursor = connection.cursor()
 
-    query = "SELECT * FROM requests WHERE user_requested = %s AND request_status = 'Accepted' OR request_status = 'Pending'"
+    query = "SELECT * FROM requests WHERE user_requested = %s AND (request_status = 'Accepted' OR request_status = 'Pending')"
     values = (user_id,)
 
     cursor.execute(query, values)
