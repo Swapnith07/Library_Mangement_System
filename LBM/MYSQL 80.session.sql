@@ -1,0 +1,1 @@
+SELECT * FROM requests WHERE user_requested = 7 AND request_status = 'Accepted or Rejected'

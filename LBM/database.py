@@ -98,11 +98,15 @@ def add_book(title, author, genre, publication_year, isbn):
     cursor = connection.cursor()
 
     insert_query = """
-        INSERT INTO books (title, author, genre, publication_year, isbn) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO books (title, author, genre, publication_year, isbn, number_of_copies)
+        VALUES (%s, %s, %s, %s, %s, 1)
+        ON DUPLICATE KEY UPDATE number_of_copies = number_of_copies + 1
     """
+
     cursor.execute(insert_query, (title, author,
                    genre, publication_year, isbn))
     connection.commit()
+
     close_database_connection(connection, cursor)
 
 
@@ -214,6 +218,13 @@ def issue_book(user_id, book_name, isbn_number, due_date, book_id):
     """
     cursor.execute(insert_query_borrowing_history,
                    (user_id, book_name, isbn_number, due_date))
+
+    update_query = """
+            UPDATE books
+            SET number_of_copies = GREATEST(number_of_copies - 1, 0)
+            WHERE isbn = %s
+            """
+    cursor.execute(update_query, (isbn_number,))
 
     connection.commit()
     close_database_connection(connection, cursor)
@@ -374,21 +385,33 @@ def get_requests():
     connection = get_database_connection()
     cursor = connection.cursor()
 
+    query = "SELECT * FROM books WHERE number_of_copies > 0"
+    cursor.execute(query)
+    books = cursor.fetchall()
+
     query = "SELECT * FROM requests"
     cursor.execute(query)
     requests = cursor.fetchall()
 
     close_database_connection(connection, cursor)
-    return requests
+    return requests, books
 
 
-def accept_a_request(request_id):
+def accept_a_request(request_id, isbn):
     connection = get_database_connection()
     cursor = connection.cursor()
 
     query = "UPDATE requests SET request_status = 'Accepted' WHERE request_id = %s"
     values = (request_id,)
     cursor.execute(query, values)
+
+    update_query = """
+        UPDATE books
+        SET number_of_copies = GREATEST(number_of_copies - 1, 0)
+        WHERE isbn = %s
+    """
+    cursor.execute(update_query, (isbn,))
+    connection.commit()
 
     query1 = "SELECT * FROM requests WHERE request_id = %s"
     values = (request_id,)
@@ -417,11 +440,12 @@ def reject_a_request(request_id):
     connection.commit()
     close_database_connection(connection, cursor)
 
+
 def get_user_requests(user_id):
     connection = get_database_connection()
     cursor = connection.cursor()
 
-    query = "SELECT * FROM requests WHERE user_requested = %s AND (request_status = 'Accepted' OR request_status = 'Pending')"
+    query = "SELECT * FROM requests WHERE user_requested = %s"
     values = (user_id,)
 
     cursor.execute(query, values)
@@ -429,3 +453,29 @@ def get_user_requests(user_id):
 
     close_database_connection(connection, cursor)
     return user_requests
+
+
+def get_user_requestss(user_id):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT * FROM requests WHERE user_requested = %s AND request_status IN ('Accepted', 'Pending')"
+    values = (user_id,)
+
+    cursor.execute(query, values)
+    user_requestss = cursor.fetchall()
+
+    close_database_connection(connection, cursor)
+    return user_requestss
+
+
+def extend_date(user_id, isbn):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "UPDATE borrowing_history SET due_date = DATE_ADD(due_date, INTERVAL 3 DAY) WHERE user_id = %s AND isbn_number = %s"
+    values = (user_id, isbn)
+    cursor.execute(query, values)
+
+    connection.commit()
+    close_database_connection(connection, cursor)

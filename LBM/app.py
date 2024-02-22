@@ -1,5 +1,6 @@
+import datetime
 import streamlit as st
-from database import accept_a_request, add_request, create_borrowing_history_table, create_users_table, find_book, get_issued_books, get_requests, get_user_requests, register_user, authenticate_user, reject_a_request
+from database import accept_a_request, add_request, create_borrowing_history_table, create_users_table, extend_date, find_book, get_issued_books, get_requests, get_user_requests, get_user_requestss, register_user, authenticate_user, reject_a_request
 from database import create_books_table, add_book, get_all_books, delete_book, check_book_existence, get_all_guest_users, get_user_details
 from database import create_issued_books_table, issue_book, get_issued_books, return_book
 from database import search_books_by_author, search_books_by_genre, search_books_by_isbn, search_books_by_name, get_borrowing_history, create_request_table
@@ -304,7 +305,8 @@ def view_issued_books_page():
 
 def view_requests():
     st.title("View Requests")
-    requests = get_requests()
+    requests, books = get_requests()
+    avl_books = [book[5] for book in books]
     if not requests:
         st.info("No requests available.")
     else:
@@ -316,23 +318,31 @@ def view_requests():
             st.write(f"ISBN Number: {request[2]}")
             st.write(f"User ID: {request[3]}")
 
-            if request[4] == "Pending":
-                button_key_accept = f"accept_button_{request[0]}"
-                st.button("Accept Request", key=button_key_accept,
-                          on_click=accept_request, args=(request[0],))
-                button_key_reject = f"reject_button_{request[0]}"
-                st.button("Reject Request", key=button_key_reject,
-                          on_click=reject_request, args=(request[0],))
-            elif request[4] == "Accepted":
+            if request[4] == "Accepted":
                 st.write("Request has already been accepted.")
             elif request[4] == "Rejected":
                 st.write("Request has been rejected.")
 
+            elif request[2] in avl_books:
+                if request[4] == "Pending":
+                    button_key_accept = f"accept_button_{request[0]}"
+                    st.button("Accept Request", key=button_key_accept,
+                              on_click=accept_request, args=(request[0], request[2]))
+                    button_key_reject = f"reject_button_{request[0]}"
+                    st.button("Reject Request", key=button_key_reject,
+                              on_click=reject_request, args=(request[0],))
+                elif request[4] == "Accepted":
+                    st.write("Request has already been accepted.")
+                elif request[4] == "Rejected":
+                    st.write("Request has been rejected.")
+            else:
+                st.write("Book is not available.")
+
             st.write(" ---")
 
 
-def accept_request(request_id):
-    accept_a_request(request_id)
+def accept_request(request_id, isbn):
+    accept_a_request(request_id, isbn)
     st.success("Request accepted successfully.")
 
 
@@ -366,20 +376,25 @@ def search_books_page():
     if st.button("Search"):
         create_books_table()
         books = search_books(search_category, search_query)
-
+        requests = get_user_requestss(st.session_state.loggedin_id)
+        req_books = [book[5] for book in requests]
+        
         if not books:
             st.info("No matching books found.")
         else:
             st.write("### Matching Books Information")
             for i, book in enumerate(books):
                 st.write(f"#### Book {i + 1}")
-                st.write(f"*Book Name:* {book[1]}")
-                st.write(f"*Author:* {book[2]}")
-                st.write(f"*Genre:* {book[3]}")
-                st.write(f"*Publication Year:* {book[4]}")
-                st.write(f"*ISBN:* {book[5]}")
-                st.button(f"Request {book[1]}",
-                          on_click=req_book, args=(book[5],))
+                st.write(f"**Book Name:** {book[1]}")
+                st.write(f"**Author:** {book[2]}")
+                st.write(f"**Genre:** {book[3]}")
+                st.write(f"**Publication Year:** {book[4]}")
+                st.write(f"**ISBN:** {book[5]}")
+                if book[0] in req_books:
+                    st.write("This book has alredy been requested")
+                else:
+                    st.button(f"Request {book[1]}",
+                              on_click=req_book, args=(book[5],))
 
 
 def req_book(isbn):
@@ -414,6 +429,13 @@ def search_books(category, query):
         return []
 
 
+def can_extend_due_date(due_date):
+    current_datetime = datetime.now()
+    due_datetime = datetime.combine(
+        due_date, datetime.min.time())
+    return current_datetime < due_datetime
+
+
 def borrowing_history_page():
     st.title("Borrowing History")
 
@@ -424,13 +446,27 @@ def borrowing_history_page():
             st.info("No borrowing history available.")
         else:
             st.write("### Borrowing History")
-            st.table({
-                'Book Name': [book[0] for book in borrowing_history],
-                'ISBN Number': [book[1] for book in borrowing_history],
-                'Due Date': [book[2].strftime("%Y-%m-%d") for book in borrowing_history],
-            })
+
+            for book in borrowing_history:
+                st.write(f"**Book Name:** {book[0]}")
+                st.write(f"**ISBN Number:** {book[1]}")
+                st.write(f"**Due Date:** {book[2].strftime('%Y-%m-%d')}")
+                button_id = f"extend_button_{book[1]}"
+
+                if can_extend_due_date(book[2]):
+                    if st.button("Extend Date", button_id, on_click=extend, args=(user_id, book[1])):
+                        st.info("Due date extended!")
+                else:
+                    st.write("Due date cannot be extended.")
+
+                st.write("------")
+
     else:
         st.warning("User not logged in.")
+
+
+def extend(user_id, book_id):
+    extend_date(user_id, book_id)
 
 
 def featured_books_page():
