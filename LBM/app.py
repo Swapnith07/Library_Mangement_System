@@ -1,8 +1,8 @@
 import streamlit as st
-from database import accept_a_request, add_request, create_users_table, find_book, get_issued_books, get_requests, register_user, authenticate_user
+from database import accept_a_request, add_request, create_borrowing_history_table, create_users_table, find_book, get_issued_books, get_requests, get_user_requests, register_user, authenticate_user, reject_a_request
 from database import create_books_table, add_book, get_all_books, delete_book, check_book_existence, get_all_guest_users, get_user_details
 from database import create_issued_books_table, issue_book, get_issued_books, return_book
-from database import search_books_by_author, search_books_by_genre, search_books_by_isbn, search_books_by_name, get_borrowing_history
+from database import search_books_by_author, search_books_by_genre, search_books_by_isbn, search_books_by_name, get_borrowing_history, create_request_table
 from datetime import datetime, timedelta
 
 
@@ -10,21 +10,21 @@ def user_selection_page():
     st.title("Library Management System")
     create_users_table()
     user_type = st.radio("Select your user type:", [
-        "Guest", "Admin", "Registration"])
+        "User", "Admin", "Registration"])
     if user_type == "Admin":
         admin_login_page()
-    elif user_type == "Guest":
+    elif user_type == "User":
         guest_login_page()
     elif user_type == "Registration":
         registration_page()
 
 
 def guest_login_page():
-    st.title("Guest Login")
+    st.title("User Login")
     username_guest = st.text_input("Username:")
     password_guest = st.text_input("Password:", type="password")
 
-    if st.button("Login as Guest"):
+    if st.button("Login as User"):
         if username_guest == "" or password_guest == "":
             st.warning("Username and password cannot be empty.")
         else:
@@ -59,7 +59,7 @@ def admin_login_page():
 
 
 def registration_page():
-    st.title("Guest Registration")
+    st.title("User Registration")
     new_username = st.text_input("Username:")
     new_password = st.text_input("Password:", type="password")
     confirm_password = st.text_input("Confirm Password:", type="password")
@@ -105,7 +105,7 @@ def main_page(user_id):
 
     if user_id == 1:  # Admin
         st.sidebar.subheader("Admin Actions")
-        admin_actions = ["Manage Books", "Manage Students", "requests",
+        admin_actions = ["Manage Books", "Manage Students", "Requests",
                          "Issue Book", "Return Book", "View Issued Books", "Logout"]
         admin_choice = st.sidebar.selectbox("Select Action", admin_actions)
 
@@ -124,7 +124,7 @@ def main_page(user_id):
                 delete_book_page()
         elif admin_choice == "Manage Students":
             manage_students_page()
-        elif admin_choice == "requests":
+        elif admin_choice == "Requests":
             view_requests()
         elif admin_choice == "Issue Book":
             issue_book_page()
@@ -138,12 +138,12 @@ def main_page(user_id):
 
     else:
         st.sidebar.subheader("Guest Actions")
-        guest_actions = ["Search Books", "View Books",
+        guest_actions = ["Search Books", "Requested Books",
                          "Borrowing History", "Featured Books", "Logout"]
         guest_choice = st.sidebar.selectbox("Select Action", guest_actions)
 
-        if guest_choice == "View Books":
-            guest_view_books_page()
+        if guest_choice == "Requested Books":
+            guest_requested_books_page(st.session_state.loggedin_id)
         elif guest_choice == "Search Books":
             search_books_page()
         elif guest_choice == "Borrowing History":
@@ -249,7 +249,8 @@ def issue_book_page():
                 book_exists = check_book_existence(book_name, isbn_number)
                 if book_exists:
                     # Issue the book
-                    issue_book(student[0], book_name, isbn_number, due_date)
+                    issue_book(student[0], book_name, isbn_number,
+                               due_date, book_id=book_exists[0])
                     st.success(
                         f"Book '{book_name}' issued to {student_username} with due date {due_date}.")
                 else:
@@ -279,7 +280,7 @@ def return_book_page():
             if matching_books:
                 # Remove the book entry from the issued_books table
                 return_book(book_name_return,
-                            isbn_number_return, username_return)
+                            isbn_number_return, username_return, book_id=matching_books[0][4])
                 st.success(f"Book '{book_name_return}' returned successfully.")
             else:
                 st.error("Book not found or not issued to the specified user.")
@@ -309,23 +310,25 @@ def view_requests():
     else:
         st.write("### Requests Information")
         for i, request in enumerate(requests):
+            st.write(f"Request {i+1}:")
+            st.write(f"Request ID: {request[0]}")
+            st.write(f"Book Name: {request[1]}")
+            st.write(f"ISBN Number: {request[2]}")
+            st.write(f"User ID: {request[3]}")
+
             if request[4] == "Pending":
-                st.write(f"Request {i+1}:")
-                st.write(f"Request ID: {request[0]}")
-                st.write(f"Book Name: {request[1]}")
-                st.write(f"ISBN Number: {request[2]}")
-                st.write(f"User ID: {request[3]}")
-                button_key = f"accept_button_{request[0]}"
-                st.button("Accept Request", key=button_key,
+                button_key_accept = f"accept_button_{request[0]}"
+                st.button("Accept Request", key=button_key_accept,
                           on_click=accept_request, args=(request[0],))
-            else:
-                st.write(f"Request {i+1}:")
-                st.write(f"Request ID: {request[0]}")
-                st.write(f"Book Name: {request[1]}")
-                st.write(f"ISBN Number: {request[2]}")
-                st.write(f"User ID: {request[3]}")
+                button_key_reject = f"reject_button_{request[0]}"
+                st.button("Reject Request", key=button_key_reject,
+                          on_click=reject_request, args=(request[0],))
+            elif request[4] == "Accepted":
                 st.write("Request has already been accepted.")
-            st.write("---")
+            elif request[4] == "Rejected":
+                st.write("Request has been rejected.")
+
+            st.write(" ---")
 
 
 def accept_request(request_id):
@@ -333,22 +336,23 @@ def accept_request(request_id):
     st.success("Request accepted successfully.")
 
 
-def guest_view_books_page():
-    st.title("Guest View Books")
-    create_books_table()
-    books = get_all_books()
+def reject_request(request_id):
+    reject_a_request(request_id)
+    st.success("Request rejected successfully.")
 
-    if not books:
-        st.info("No books available.")
+
+def guest_requested_books_page(user_id):
+    st.title("User Requested Books")
+    user_requests = get_user_requests(user_id)
+
+    if not user_requests:
+        st.info("No requests available.")
     else:
-        st.write("### Books Information")
+        st.write("### Requests Information")
         st.table({
-            'SNO': [i + 1 for i in range(len(books))],
-            'BOOK NAME': [book[1] for book in books],
-            'Author': [book[2] for book in books],
-            'Genre': [book[3] for book in books],
-            'Publication Year': [book[4] for book in books],
-            'ISBN': [book[5] for book in books]
+            'Book Name': [request[1] for request in user_requests],
+            'ISBN Number': [request[2] for request in user_requests],
+            'Request Status': [request[4] for request in user_requests],
         })
 
 
@@ -380,7 +384,21 @@ def search_books_page():
 
 def req_book(isbn):
     book = find_book(isbn)
-    add_request(book[5], book[1], "Pending", st.session_state.loggedin_id)
+
+    if st.session_state.user_id == 2:  # Check if the user is a guest
+        requested_books_count = len(
+        get_user_requests(st.session_state.loggedin_id))
+        request_limit = 3
+
+        if requested_books_count >= request_limit:
+            st.warning(
+                f"You have already requested {request_limit} books. Please return a book before requesting another.")
+        else:
+            add_request(book[5], book[1], "Pending",
+                        st.session_state.loggedin_id, book[0])
+            st.success(f"Request for '{book[1]}' successfully added.")
+    else:
+        st.error("User not found or not a guest user.")
 
 
 def search_books(category, query):
@@ -430,8 +448,11 @@ def main():
         user_selection_page()
     elif st.session_state.user_id == 1:
         create_issued_books_table()
+        create_borrowing_history_table()
+        create_request_table()
         main_page(st.session_state.user_id)
     else:  # Guest
+        create_borrowing_history_table()
         main_page(st.session_state.user_id)
 
 

@@ -143,7 +143,7 @@ def check_book_existence(book_name, isbn_number):
     book = cursor.fetchone()
 
     close_database_connection(connection, cursor)
-    return bool(book)
+    return book
 
 
 def get_all_guest_users():
@@ -171,6 +171,7 @@ def create_issued_books_table():
             book_name VARCHAR(255) NOT NULL,
             isbn_number VARCHAR(20) NOT NULL,
             due_date DATE NOT NULL,
+            book_id INT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """
@@ -179,14 +180,41 @@ def create_issued_books_table():
     close_database_connection(connection, cursor)
 
 
-def issue_book(user_id, book_name, isbn_number, due_date):
+def create_borrowing_history_table():
     connection = get_database_connection()
     cursor = connection.cursor()
 
-    insert_query = """
-        INSERT INTO issued_books (user_id, book_name, isbn_number, due_date) VALUES (%s, %s, %s, %s)
+    create_table_query = """
+       CREATE TABLE IF NOT EXISTS borrowing_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT,
+                book_name VARCHAR(255) NOT NULL,
+                isbn_number VARCHAR(20) NOT NULL,
+                due_date DATE NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+        )
     """
-    cursor.execute(insert_query, (user_id, book_name, isbn_number, due_date))
+    cursor.execute(create_table_query)
+    connection.commit()
+    close_database_connection(connection, cursor)
+
+
+def issue_book(user_id, book_name, isbn_number, due_date, book_id):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    insert_query_issued_books = """
+        INSERT INTO issued_books (user_id, book_name, isbn_number, due_date,book_id) VALUES (%s, %s, %s, %s,%s)
+    """
+    cursor.execute(insert_query_issued_books,
+                   (user_id, book_name, isbn_number, due_date, book_id))
+
+    insert_query_borrowing_history = """
+        INSERT INTO borrowing_history (user_id, book_name, isbn_number, due_date) VALUES (%s, %s, %s, %s)
+    """
+    cursor.execute(insert_query_borrowing_history,
+                   (user_id, book_name, isbn_number, due_date))
+
     connection.commit()
     close_database_connection(connection, cursor)
 
@@ -196,7 +224,7 @@ def get_issued_books():
     cursor = connection.cursor()
 
     select_query = """
-        SELECT ib.book_name, ib.isbn_number, ib.due_date, u.username
+        SELECT ib.book_name, ib.isbn_number, ib.due_date, u.username, ib.book_id
         FROM issued_books ib
         INNER JOIN users u ON ib.user_id = u.id
     """
@@ -207,7 +235,7 @@ def get_issued_books():
     return issued_books
 
 
-def return_book(book_name, isbn_number, username):
+def return_book(book_name, isbn_number, username, book_id):
     connection = get_database_connection()
     cursor = connection.cursor()
 
@@ -217,6 +245,9 @@ def return_book(book_name, isbn_number, username):
         )
     """
     cursor.execute(delete_query, (book_name, isbn_number, username))
+    connection.commit()
+    change_query = "UPDATE requests SET request_status = 'returned' WHERE book_id = %s"
+    cursor.execute(change_query, (book_id,))
     connection.commit()
     close_database_connection(connection, cursor)
 
@@ -282,8 +313,8 @@ def get_borrowing_history(user_id):
     cursor = connection.cursor()
 
     select_query = """
-        SELECT book_name, isbn_number,due_date
-        FROM issued_books
+        SELECT book_name, isbn_number, due_date
+        FROM borrowing_history
         WHERE user_id = %s
     """
     cursor.execute(select_query, (user_id,))
@@ -293,14 +324,34 @@ def get_borrowing_history(user_id):
     return borrowing_history
 
 
-def add_request(isbn_number, book_name, request_status, user_requested):
+def create_request_table():
     connection = get_database_connection()
     cursor = connection.cursor()
 
-    query = "INSERT INTO requests (isbn_number, book_name, request_status,user_requested) VALUES (%s, %s, %s,%s)"
-    values = (isbn_number, book_name, request_status, user_requested)
+    create_table_query = """
+       CREATE TABLE IF NOT EXISTS requests (
+                request_id INT AUTO_INCREMENT PRIMARY KEY,
+                book_name VARCHAR(255) NOT NULL,
+                isbn_number VARCHAR(20) NOT NULL,
+                user_requested VARCHAR(255) NOT NULL,
+                request_status VARCHAR(20) DEFAULT 'Pending',
+                book_id INT NOT NULL
+        )
+    """
 
-    cursor.execute(query, values)
+    cursor.execute(create_table_query)
+    connection.commit()
+    close_database_connection(connection, cursor)
+
+
+def add_request(isbn_number, book_name, request_status, user_requested, book_id):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    insert_query = """
+      INSERT INTO requests (isbn_number, book_name, request_status,user_requested,book_id) VALUES (%s, %s, %s,%s,%s)"""
+    cursor.execute(insert_query, (isbn_number, book_name,
+                   request_status, user_requested, book_id))
     connection.commit()
     close_database_connection(connection, cursor)
 
@@ -343,13 +394,39 @@ def accept_a_request(request_id):
     values = (request_id,)
     cursor.execute(query1, values)
     request = cursor.fetchone()
-    print(request)
     user_id = int(request[3])
     book_name = request[1]
+    book_id = int(request[5])
     isbn_number = int(request[2])
     due_date = datetime.now().date() + timedelta(days=3)
 
-    issue_book(user_id, book_name, isbn_number, due_date)
+    issue_book(user_id, book_name, isbn_number, due_date, book_id)
 
     connection.commit()
     close_database_connection(connection, cursor)
+
+
+def reject_a_request(request_id):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "UPDATE requests SET request_status = 'Rejected' WHERE request_id = %s"
+    values = (request_id,)
+    cursor.execute(query, values)
+
+    connection.commit()
+    close_database_connection(connection, cursor)
+
+
+def get_user_requests(user_id):
+    connection = get_database_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT * FROM requests WHERE user_requested = %s AND request_status = 'Accepted' OR request_status = 'Pending'"
+    values = (user_id,)
+
+    cursor.execute(query, values)
+    user_requests = cursor.fetchall()
+
+    close_database_connection(connection, cursor)
+    return user_requests
